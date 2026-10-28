@@ -13060,6 +13060,22 @@ nav button.active{background:#2E1215;color:#D9A23F;box-shadow:inset 4px 0 #E5122
     }
     return generateGroups(d);
   }
+  function skillOrder(a, b) {
+    return (b.skill ?? -1) - (a.skill ?? -1) || a.id.localeCompare(b.id, void 0, { numeric: true });
+  }
+  function orientGroupMatches(d) {
+    const by = new Map(d.teams.map((t) => [t.id, t]));
+    return d.matches.map((m) => {
+      if (m.stage !== "group" || m.status !== "scheduled") return m;
+      if (m.hg != null || m.ag != null || m.homeLines && m.homeLines.length || m.awayLines && m.awayLines.length) return m;
+      const h = by.get(m.home), a = by.get(m.away);
+      if (!h || !a) return m;
+      return skillOrder(h, a) < 0 ? { ...m, home: a.id, away: h.id } : m;
+    });
+  }
+  function orientData(d) {
+    return d && d.teams && d.matches ? { ...d, matches: orientGroupMatches(d) } : d;
+  }
   function generateGroups(d) {
     const matches = d.matches.filter((m) => m.stage !== "group");
     for (const g of GROUPS) {
@@ -13070,7 +13086,7 @@ nav button.active{background:#2E1215;color:#D9A23F;box-shadow:inset 4px 0 #E5122
         matches.push(existing || { ...blankMatch(id), group: g, home: t[i].id, away: t[j].id });
       }
     }
-    return { ...d, matches };
+    return { ...d, matches: orientGroupMatches({ ...d, matches }) };
   }
   function baseRows(d, teams, matches) {
     return teams.map((team) => {
@@ -13091,6 +13107,7 @@ nav button.active{background:#2E1215;color:#D9A23F;box-shadow:inset 4px 0 #E5122
   }
   function standings(d, g) {
     const matches = d.matches.filter((m) => m.stage === "group" && m.group === g);
+    if (matches.every((m) => m.status !== "played")) return baseRows(d, d.teams.filter((t) => t.group === g).sort(skillOrder), matches);
     const rows = baseRows(d, d.teams.filter((t) => t.group === g), matches).sort(primary);
     const output = [];
     for (let i = 0; i < rows.length; ) {
@@ -13313,7 +13330,7 @@ nav button.active{background:#2E1215;color:#D9A23F;box-shadow:inset 4px 0 #E5122
     async function reload() {
       try {
         const x = await api("state");
-        setData(x.data);
+        setData(orientData(x.data));
         setVersion(x.version);
         setAdmin(x.admin);
         setDirty(false);
@@ -13332,7 +13349,7 @@ nav button.active{background:#2E1215;color:#D9A23F;box-shadow:inset 4px 0 #E5122
       if (dirty) return;
       const t = setInterval(() => {
         api("state").then((x) => {
-          setData(x.data);
+          setData(orientData(x.data));
           setVersion(x.version);
           setAdmin(x.admin);
         }).catch(() => {
@@ -13365,6 +13382,7 @@ nav button.active{background:#2E1215;color:#D9A23F;box-shadow:inset 4px 0 #E5122
     function patchTeam(id, patch) {
       change((d) => {
         Object.assign(d.teams.find((t) => t.id === id), patch);
+        if ("skill" in patch) d.matches = orientGroupMatches(d);
       });
     }
     function patchPlayer(tid, pid, patch) {
